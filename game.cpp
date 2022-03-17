@@ -335,14 +335,14 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 		// TODO: make the objectVerticies 4D and calculate normals 
 		_gameState->objectVerticies = (math_4D_vector*)game_memory_allocate(&_gameState->allocator, sizeof(math_4D_vector));
 		_gameState->objectVerticiesCount = 0;
-		_gameState->_fileContents = (uint8_t*)_AllocatedMemory->transientStorage;
+		uint8_t* _fileContents = (uint8_t*)_AllocatedMemory->transientStorage;
 		uint64_t _fileSize = _AllocatedMemory->transientStorageSize;
 		uint64_t _fileCounter = 0;
 		int _verticiesCounted = false;
-		while(*_gameState->_fileContents != NULL && _fileCounter < _fileSize)
+		while(*_fileContents != NULL && _fileCounter < _fileSize)
 		{
 			_fileCounter++;
-			if(*_gameState->_fileContents == 'v' && *(_gameState->_fileContents+1) == ' ') // v not vn
+			if(*_fileContents == 'v' && *(_fileContents+1) == ' ') // v not vn
 			{
 				game_memory_allocate(&_gameState->allocator, sizeof(math_4D_vector));
 				// process line
@@ -352,12 +352,12 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 				int _numbersProcessed = 0;
 				math_4D_vector* _currentVector = _gameState->objectVerticies + _gameState->objectVerticiesCount;
 				_gameState->objectVerticiesCount++;
-				_gameState->_fileContents++;
-				_gameState->_fileContents++;
-				_gameState->_fileContents++;
-				while(_gameState->_fileContents != NULL && *_gameState->_fileContents != '\n')
+				_fileContents++;
+				_fileContents++;
+				_fileContents++;
+				while(_fileContents != NULL && *_fileContents != '\n')
 				{
-					if(*_gameState->_fileContents == ' ')
+					if(*_fileContents == ' ')
 					{
 						int _divisor = 1;
 						while(_decimalPosition > 0)
@@ -381,29 +381,29 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 						_isNegative = false;
 						_decimalPosition = 0;
 						_numbersProcessed++;
-						_gameState->_fileContents++;
-						_gameState->_fileContents++;
+						_fileContents++;
+						_fileContents++;
 						_decimalPosition = -2;
 						_currentNumber = 0;
 						continue;
 					}
-					else if(*_gameState->_fileContents == '-')
+					else if(*_fileContents == '-')
 					{
 						_isNegative = true;
 					}
-					else if(*_gameState->_fileContents == '.')
+					else if(*_fileContents == '.')
 					{
 						_decimalPosition = -1;
 					}
 					else 
 					{
-						_currentNumber = _currentNumber * 10 + (*_gameState->_fileContents - '0');
+						_currentNumber = _currentNumber * 10 + (*_fileContents - '0');
 					}
 					if(_decimalPosition >= -1)
 					{
 						_decimalPosition++;
 					}
-					_gameState->_fileContents++;
+					_fileContents++;
 				}
 				int _divisor = 1;
 				while(_decimalPosition > 0)
@@ -419,7 +419,7 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 				_currentVector->z = _currentNumber;
 				_currentVector->w = 1.0f;
 			}
-			else if(*_gameState->_fileContents == 'f' && *(_gameState->_fileContents+1) == ' ') 
+			else if(*_fileContents == 'f' && *(_fileContents+1) == ' ') 
 			{
 				if(!_verticiesCounted)
 				{
@@ -431,40 +431,40 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 				// TODO get rid of _gameState temp variables
 				int _isNegative = false;
 				int _decimalPosition = 0;
-				_gameState->_currentNumber = 0;
-				_gameState->_numbersProcessed = 0;
-				_gameState->_currentTriangle = _gameState->triangleFaces + _gameState->triangleCount;
+				int _currentNumber = 0;
+				int _numbersProcessed = 0;
+				game_render_face* _currentTriangle = _gameState->triangleFaces + _gameState->triangleCount;
 				_gameState->triangleCount++;
-				_gameState->_fileContents++;
-				_gameState->_fileContents++;
-				_gameState->_fileContents++;
-				while(_gameState->_fileContents != NULL && *_gameState->_fileContents != '\n' && *_gameState->_fileContents != '\r')
+				_fileContents++;
+				_fileContents++;
+				_fileContents++;
+				while(_fileContents != NULL && *_fileContents != '\n' && *_fileContents != '\r')
 				{
-					if(*_gameState->_fileContents == ' ')
+					if(*_fileContents == ' ')
 					{
-						if(_gameState->_numbersProcessed == 0)
+						if(_numbersProcessed == 0)
 						{
-							_gameState->_currentTriangle->vertex1 = _gameState->_currentNumber;
+							_currentTriangle->vertex1 = _currentNumber;
 						}
 						else
 						{
-							_gameState->_currentTriangle->vertex2 = _gameState->_currentNumber;
+							_currentTriangle->vertex2 = _currentNumber;
 						}
-						_gameState->_numbersProcessed++;
-						_gameState->_fileContents++;
-						_gameState->_fileContents++;
-						_gameState->_currentNumber = 0;
+						_numbersProcessed++;
+						_fileContents++;
+						_fileContents++;
+						_currentNumber = 0;
 						continue;
 					}
 					else 
 					{
-						_gameState->_currentNumber = _gameState->_currentNumber * 10 + (*_gameState->_fileContents - '0');
+						_currentNumber = _currentNumber * 10 + (*_fileContents - '0');
 					}
-					_gameState->_fileContents++;
+					_fileContents++;
 				}
-				_gameState->_currentTriangle->vertex3 = _gameState->_currentNumber;
+				_currentTriangle->vertex3 = _currentNumber;
 			}
-			_gameState->_fileContents++;
+			_fileContents++;
 		}
 		_gameState->platformMessage = _gameState->platformMessage & !game_memory_loadedFile;
 	}
@@ -943,26 +943,26 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 		math_4D_matrix _rotatedMatrix = math_4D_multiplyTwoMatricies(_translationMatrix, _rotationMatrix);
 		_rotatedMatrix = math_4D_multiplyTwoMatricies(_gameState->cameraProjectionMatrix, _rotatedMatrix);
 		//math_4D_vector* _objectVerticies = _gameState->objectVerticies;
-		_gameState->_faceCounter = 0;
-		_gameState->_currentTriangle = _gameState->triangleFaces;
-		while(_gameState->_faceCounter < _gameState->triangleCount)
+		uint32_t _faceCounter = 0;
+		game_render_face* _currentTriangle = _gameState->triangleFaces;
+		while(_faceCounter < _gameState->triangleCount)
 		{
-			_gameState->_vertex1 = *(_gameState->objectVerticies + _gameState->_currentTriangle->vertex1-1);
-			_gameState->_vertex2 = *(_gameState->objectVerticies + _gameState->_currentTriangle->vertex2-1);
-			_gameState->_vertex3 = *(_gameState->objectVerticies + _gameState->_currentTriangle->vertex3-1);
-			_gameState->_vertex1 = math_4D_transformVectorByMatrix(_gameState->_vertex1, _rotatedMatrix);
-			_gameState->_vertex2 = math_4D_transformVectorByMatrix(_gameState->_vertex2, _rotatedMatrix);
-			_gameState->_vertex3 = math_4D_transformVectorByMatrix(_gameState->_vertex3, _rotatedMatrix);
-			_gameState->_vertex1 = math_4D_transformVectorByMatrix(_gameState->_vertex1, _screenSpaceMatrix);
-			_gameState->_vertex2 = math_4D_transformVectorByMatrix(_gameState->_vertex2, _screenSpaceMatrix);
-			_gameState->_vertex3 = math_4D_transformVectorByMatrix(_gameState->_vertex3, _screenSpaceMatrix);
-			_gameState->_vertex1 = math_4D_divideByPerspective(_gameState->_vertex1);
-			_gameState->_vertex2 = math_4D_divideByPerspective(_gameState->_vertex2);
-			_gameState->_vertex3 = math_4D_divideByPerspective(_gameState->_vertex3);
+			math_4D_vector _vertex1 = *(_gameState->objectVerticies + _currentTriangle->vertex1-1);
+			math_4D_vector _vertex2 = *(_gameState->objectVerticies + _currentTriangle->vertex2-1);
+			math_4D_vector _vertex3 = *(_gameState->objectVerticies + _currentTriangle->vertex3-1);
+			_vertex1 = math_4D_transformVectorByMatrix(_vertex1, _rotatedMatrix);
+			_vertex2 = math_4D_transformVectorByMatrix(_vertex2, _rotatedMatrix);
+			_vertex3 = math_4D_transformVectorByMatrix(_vertex3, _rotatedMatrix);
+			_vertex1 = math_4D_transformVectorByMatrix(_vertex1, _screenSpaceMatrix);
+			_vertex2 = math_4D_transformVectorByMatrix(_vertex2, _screenSpaceMatrix);
+			_vertex3 = math_4D_transformVectorByMatrix(_vertex3, _screenSpaceMatrix);
+			_vertex1 = math_4D_divideByPerspective(_vertex1);
+			_vertex2 = math_4D_divideByPerspective(_vertex2);
+			_vertex3 = math_4D_divideByPerspective(_vertex3);
 			game_render_color _triangleColor = {1.0f, 1.0f, 0.0f};
-			game_render_triangle(_RenderBuffer, _gameState->_vertex1, _gameState->_vertex2, _gameState->_vertex3, _triangleColor);
-			_gameState->_currentTriangle++;
-			_gameState->_faceCounter++;
+			game_render_triangle(_RenderBuffer, _vertex1, _vertex2, _vertex3, _triangleColor);
+			_currentTriangle++;
+			_faceCounter++;
 		}
 #else 
 		// construct upward rotation

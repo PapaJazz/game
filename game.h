@@ -229,16 +229,6 @@ typedef struct game_main_state
 	game_object_positionData cameraPositionData;
 	math_4D_matrix cameraProjectionMatrix; 
 	float rotationCounter;
-	// TEMP //
-	int _currentNumber;
-	int _numbersProcessed;
-	game_render_face* _currentTriangle;
-	uint8_t* _fileContents;
-
-	uint32_t _faceCounter;
-	math_4D_vector _vertex1;
-	math_4D_vector _vertex2;
-	math_4D_vector _vertex3;
 } game_main_state;
 extern "C" void game_main_init(uint8_t* _IsRunning, game_sound_buffer* _SoundBuffer, game_render_buffer* _RenderBuffer, game_input_buffer* _InputBuffer, game_memory_allocated* _AllocatedMemory);
 extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundBuffer, game_render_buffer* _RenderBuffer, game_input_buffer* _InputBuffer, game_memory_allocated* _AllocatedMemory);
