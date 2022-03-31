@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "utility.h"
+#include <float.h> // FLT_MAX
 // INPUT //
 static void game_input_clearMoveBuffer(uint8_t _MoveBuffer[game_input_numberOfButtonsPerMove])
 {
@@ -30,7 +31,8 @@ static void game_input_clearButtons(uint8_t Button[game_input_numberOfButtonsPer
 
 
 // RENDER //
-static void game_render_rectangle(game_render_buffer* _RenderBuffer, float _MinX, float _MinY, float _MaxX, float _MaxY, game_render_color _Color)
+
+static void game_render_rectangle(game_render_buffer* _RenderBuffer, float _MinX, float _MinY, float _MaxX, float _MaxY, math_4D_vector _Color)
 {
 	int32_t _minX = utility_round_floatToInt32(_MinX);
 	int32_t _minY = utility_round_floatToInt32(_MinY);
@@ -52,7 +54,7 @@ static void game_render_rectangle(game_render_buffer* _RenderBuffer, float _MinX
 	{
 		_maxY = _RenderBuffer->height;
 	}
-	uint32_t _color = (utility_round_floatToUint32(_Color.red * 255.0f) << 16) | (utility_round_floatToUint32(_Color.green * 255.0f) << 8) | (utility_round_floatToUint32(_Color.blue * 255.0f) << 0); 
+	uint32_t _color = (utility_round_floatToUint32(_Color.x * 255.0f) << 16) | (utility_round_floatToUint32(_Color.y * 255.0f) << 8) | (utility_round_floatToUint32(_Color.z * 255.0f) << 0); 
 	uint8_t* _row = (uint8_t*)(_RenderBuffer->memory) + (_minX * game_render_bytesPerPixel) + (_minY * _RenderBuffer->pitch);    
 	int _y = _minY;
 	while(_y < _maxY)
@@ -69,84 +71,191 @@ static void game_render_rectangle(game_render_buffer* _RenderBuffer, float _MinX
 		_y++;
 	}
 }
+
+
+
 // NOTE: this is an explicit rasteriser rather than an implicit surface rasteriser
-// TODO: textures instead of color
-// TODO: depth Buffering / Z buffering
-static void game_render_triangle(game_render_buffer* _RenderBuffer, math_4D_vector _Vertex1, math_4D_vector _Vertex2, math_4D_vector _Vertex3, game_render_color _Color)
+static void game_render_triangle(game_render_buffer* _RenderBuffer, game_render_vertex _Vertex1, game_render_vertex _Vertex2, game_render_vertex _Vertex3, game_render_texture _Texture)
 {
-	math_4D_vector _minYVertex = _Vertex1;
-	math_4D_vector _midYVertex = _Vertex2;
-	math_4D_vector _maxYVertex = _Vertex3;
+	// Sort points
+	math_4D_vector _minYVertex = _Vertex1.position;
+	math_4D_vector _midYVertex = _Vertex2.position;
+	math_4D_vector _maxYVertex = _Vertex3.position;
+	math_2D_vector _minYVertTextureCoordinates = _Vertex1.textureCoordinates;
+	math_2D_vector _midYVertTextureCoordinates = _Vertex2.textureCoordinates;
+	math_2D_vector _maxYVertTextureCoordinates = _Vertex3.textureCoordinates;
 	if(_maxYVertex.y < _midYVertex.y)
 	{
 		math_4D_vector _temp = _maxYVertex;
 		_maxYVertex = _midYVertex;
 		_midYVertex = _temp;
+		math_2D_vector _temp2D = _midYVertTextureCoordinates;
+		_midYVertTextureCoordinates = _maxYVertTextureCoordinates;
+		_maxYVertTextureCoordinates = _temp2D;
 	}
 	if(_midYVertex.y < _minYVertex.y)
 	{
 		math_4D_vector _temp = _midYVertex;
 		_midYVertex = _minYVertex;
 		_minYVertex = _temp;
+		math_2D_vector _temp2D = _midYVertTextureCoordinates;
+		_midYVertTextureCoordinates =	_minYVertTextureCoordinates ;
+		_minYVertTextureCoordinates = _temp2D;
 	}
 	if(_maxYVertex.y < _midYVertex.y)
 	{
 		math_4D_vector _temp = _maxYVertex;
 		_maxYVertex = _midYVertex;
 		_midYVertex = _temp;
+		math_2D_vector _temp2D = _midYVertTextureCoordinates;
+		_midYVertTextureCoordinates = _maxYVertTextureCoordinates;
+		_maxYVertTextureCoordinates = _temp2D;
 	}
-	float x1 = _maxYVertex.x - _minYVertex.x;
-	float y1 = _maxYVertex.y - _minYVertex.y;
-	float x2 = _midYVertex.x - _minYVertex.x;
-	float y2 = _midYVertex.y - _minYVertex.y;
-	int handedness = (x1*y2 - x2*y1 >= 0);
 
+	// Gradients for calculating Texture Coordinates
+	float _oneOverDX = 1.0f / (((_midYVertex.x - _maxYVertex.x) * (_minYVertex.y - _maxYVertex.y)) - ((_minYVertex.x - _maxYVertex.x) * (_midYVertex.y - _maxYVertex.y)));
+	float _oneOverDY = -_oneOverDX;
+	float _oneOverZ[3];
+	_oneOverZ[0] = 1.0f/_minYVertex.w;
+	_oneOverZ[1] = 1.0f/_midYVertex.w;
+	_oneOverZ[2] = 1.0f/_maxYVertex.w;
+
+
+	float _texCoordinatesX[3];
+	_texCoordinatesX[0] = _minYVertTextureCoordinates.x * _oneOverZ[0];
+	_texCoordinatesX[1] = _midYVertTextureCoordinates.x * _oneOverZ[1];
+	_texCoordinatesX[2] = _maxYVertTextureCoordinates.x * _oneOverZ[2];
+
+	float _texCoordinatesY[3];
+	_texCoordinatesY[0] = _minYVertTextureCoordinates.y * _oneOverZ[0];
+	_texCoordinatesY[1] = _midYVertTextureCoordinates.y * _oneOverZ[1];
+	_texCoordinatesY[2] = _maxYVertTextureCoordinates.y * _oneOverZ[2];
+
+	float _depth[3];
+	_depth[0] = _minYVertex.z;
+	_depth[1] = _midYVertex.z;
+	_depth[2] = _maxYVertex.z;
+
+	float _texCoordinatesXXStep = (((_texCoordinatesX[1] - _texCoordinatesX[2]) * (_minYVertex.y - _maxYVertex.y)) - ((_texCoordinatesX[0] - _texCoordinatesX[2]) * (_midYVertex.y - _maxYVertex.y))) * _oneOverDX;
+	float _texCoordinatesXYStep = (((_texCoordinatesX[1] - _texCoordinatesX[2]) * (_minYVertex.x - _maxYVertex.x)) - ((_texCoordinatesX[0] - _texCoordinatesX[2]) * (_midYVertex.x - _maxYVertex.x))) * _oneOverDY;
+	float _texCoordinatesYXStep = (((_texCoordinatesY[1] - _texCoordinatesY[2]) * (_minYVertex.y - _maxYVertex.y)) - ((_texCoordinatesY[0] - _texCoordinatesY[2]) * (_midYVertex.y - _maxYVertex.y))) * _oneOverDX;
+	float _texCoordinatesYYStep = (((_texCoordinatesY[1] - _texCoordinatesY[2]) * (_minYVertex.x - _maxYVertex.x)) - ((_texCoordinatesY[0] - _texCoordinatesY[2]) * (_midYVertex.x - _maxYVertex.x))) * _oneOverDY;
+	float _depthXStep = (((_depth[1] - _depth[2]) * (_minYVertex.y - _maxYVertex.y)) - ((_depth[0] - _depth[2]) * (_midYVertex.y - _maxYVertex.y))) * _oneOverDX;
+	float _depthYStep = (((_depth[1] - _depth[2]) * (_minYVertex.x - _maxYVertex.x)) - ((_depth[0] - _depth[2]) * (_midYVertex.x - _maxYVertex.x))) * _oneOverDY;
+	float _oneOverZXStep = (((_oneOverZ[1] - _oneOverZ[2]) * (_minYVertex.y - _maxYVertex.y)) - ((_oneOverZ[0] - _oneOverZ[2]) * (_midYVertex.y - _maxYVertex.y))) * _oneOverDX;
+	float _oneOverZYStep = (((_oneOverZ[1] - _oneOverZ[2]) * (_minYVertex.x - _maxYVertex.x)) - ((_oneOverZ[0] - _oneOverZ[2]) * (_midYVertex.x - _maxYVertex.x))) * _oneOverDY;
+
+
+	// Handedness
+	float _x1 = _maxYVertex.x - _minYVertex.x;
+	float _y1 = _maxYVertex.y - _minYVertex.y;
+	float _x2 = _midYVertex.x - _minYVertex.x;
+	float _y2 = _midYVertex.y - _minYVertex.y;
+	int _handedness = ((_x1 * _y2) - (_x2 * _y1) >= 0);
+
+
+	// Temp values used to calculate edge variables
 	float _changeInY;
 	float _changeInX;
 	float _preStepY;
+	float _preStepX;
 
+
+	// Edge 1
 	int _topToBottomYStart = (int)ceil(_minYVertex.y);
 	int _topToBottomYEnd = (int)ceil(_maxYVertex.y);
 	_changeInY = _maxYVertex.y - _minYVertex.y;
 	_changeInX = _maxYVertex.x - _minYVertex.x;
-	_preStepY = _topToBottomYStart - _minYVertex.y;
 	float _topToBottomXStep = (float)_changeInX / (float)_changeInY;
+	_preStepY = _topToBottomYStart - _minYVertex.y;
 	float _topToBottomCurrentX = _minYVertex.x + _preStepY * _topToBottomXStep;
+	_preStepX = _topToBottomCurrentX - _minYVertex.x;
+	float _topToBottomTexCoordX = _texCoordinatesX[0] + _texCoordinatesXXStep * _preStepX + _texCoordinatesXYStep * _preStepY;
+	float _topToBottomTexCoordXStep = _texCoordinatesXYStep + _texCoordinatesXXStep * _topToBottomXStep;
+	float _topToBottomTexCoordY = _texCoordinatesY[0] + _texCoordinatesYXStep * _preStepX + _texCoordinatesYYStep * _preStepY;
+	float _topToBottomTexCoordYStep = _texCoordinatesYYStep + _texCoordinatesYXStep * _topToBottomXStep;
+	float _topToBottomOneOverZ = _oneOverZ[0] + _oneOverZXStep * _preStepX + _oneOverZYStep * _preStepY;
+	float _topToBottomOneOverZStep = _oneOverZYStep + _oneOverZXStep * _topToBottomXStep;
+	float _topToBottomDepth = _depth[0] + _depthXStep * _preStepX + _depthYStep * _preStepY;
+	float _topToBottomDepthStep = _depthYStep + _depthXStep * _topToBottomXStep;
 
+
+	// Edge 2
 	int _topToMiddleYStart = (int)ceil(_minYVertex.y);
 	int _topToMiddleYEnd = (int)ceil(_midYVertex.y);
 	_changeInY = _midYVertex.y - _minYVertex.y;
 	_changeInX = _midYVertex.x - _minYVertex.x;
-	_preStepY = _topToMiddleYStart - _minYVertex.y;
 	float _topToMiddleXStep = (float)_changeInX / (float)_changeInY;
+	_preStepY = _topToMiddleYStart - _minYVertex.y;
 	float _topToMiddleCurrentX = _minYVertex.x + _preStepY * _topToMiddleXStep;
+	_preStepX = _topToMiddleCurrentX - _minYVertex.x;
+	float _topToMiddleTexCoordX = _texCoordinatesX[0] + _texCoordinatesXXStep * _preStepX + _texCoordinatesXYStep * _preStepY;
+	float _topToMiddleTexCoordXStep = _texCoordinatesXYStep + _texCoordinatesXXStep * _topToMiddleXStep;
+	float _topToMiddleTexCoordY = _texCoordinatesY[0] + _texCoordinatesYXStep * _preStepX + _texCoordinatesYYStep * _preStepY;
+	float _topToMiddleTexCoordYStep = _texCoordinatesYYStep + _texCoordinatesYXStep * _topToMiddleXStep;
+	float _topToMiddleOneOverZ = _oneOverZ[0] + _oneOverZXStep * _preStepX + _oneOverZYStep * _preStepY;
+	float _topToMiddleOneOverZStep = _oneOverZYStep + _oneOverZXStep * _topToMiddleXStep;
+	float _topToMiddleDepth = _depth[0] + _depthXStep * _preStepX + _depthYStep * _preStepY;
+	float _topToMiddleDepthStep = _depthYStep + _depthXStep * _topToMiddleXStep;
 
+
+	// Edge 3
 	int _middleToBottomYStart = (int)ceil(_midYVertex.y);
 	int _middleToBottomYEnd = (int)ceil(_maxYVertex.y);
 	_changeInY = _maxYVertex.y - _midYVertex.y;
 	_changeInX = _maxYVertex.x - _midYVertex.x;
-	_preStepY = _middleToBottomYStart - _midYVertex.y;
 	float _middleToBottomXStep = (float)_changeInX / (float)_changeInY;
+	_preStepY = _middleToBottomYStart - _midYVertex.y;
 	float _middleToBottomCurrentX = _midYVertex.x + _preStepY * _middleToBottomXStep;
+	_preStepX = _middleToBottomCurrentX - _midYVertex.x;
+	float _middleToBottomTexCoordX = _texCoordinatesX[1] + _texCoordinatesXXStep * _preStepX + _texCoordinatesXYStep * _preStepY;
+	float _middleToBottomTexCoordXStep = _texCoordinatesXYStep + _texCoordinatesXXStep * _middleToBottomXStep;
+	float _middleToBottomTexCoordY = _texCoordinatesY[1] + _texCoordinatesYXStep * _preStepX + _texCoordinatesYYStep * _preStepY;
+	float _middleToBottomTexCoordYStep = _texCoordinatesYYStep + _texCoordinatesYXStep * _middleToBottomXStep;
+	float _middleToBottomOneOverZ = _oneOverZ[1] + _oneOverZXStep * _preStepX + _oneOverZYStep * _preStepY;
+	float _middleToBottomOneOverZStep = _oneOverZYStep + _oneOverZXStep * _middleToBottomXStep;
+	float _middleToBottomDepth = _depth[1] + _depthXStep * _preStepX + _depthYStep * _preStepY;
+	float _middleToBottomDepthStep = _depthYStep + _depthXStep * _middleToBottomXStep;
 
-	uint32_t _color = (utility_round_floatToUint32(_Color.red * 255.0f) << 16) | (utility_round_floatToUint32(_Color.green * 255.0f) << 8) | (utility_round_floatToUint32(_Color.blue * 255.0f) << 0); 
+
 	// Top of the triangle
+	// triangle 
 	int* _leftYStart = &_topToBottomYStart;
 	int* _leftYEnd = &_topToBottomYEnd;
 	float* _leftXStep = &_topToBottomXStep;
 	float* _leftCurrentX = &_topToBottomCurrentX;
+	float* _leftDepth = &_topToBottomDepth;
+	float* _leftDepthStep = &_topToBottomDepthStep;
 
 	int* _rightYStart = &_topToMiddleYStart;
 	int* _rightYEnd = &_topToMiddleYEnd;
 	float* _rightXStep = &_topToMiddleXStep;
 	float* _rightCurrentX = &_topToMiddleCurrentX;
+	float* _rightDepth = &_topToMiddleDepth;
+	float* _rightDepthStep = &_topToMiddleDepthStep;
 
-	if(handedness)
+	// Texture 
+	float* _leftTexCoordX = &_topToBottomTexCoordX;
+	float* _leftTexCoordXStep = &_topToBottomTexCoordXStep;
+	float* _leftTexCoordY = &_topToBottomTexCoordY;
+	float* _leftTexCoordYStep = &_topToBottomTexCoordYStep;
+	float* _leftOneOverZ = &_topToBottomOneOverZ;
+	float* _leftOneOverZStep = &_topToBottomOneOverZStep;
+
+	float* _rightTexCoordX = &_topToMiddleTexCoordX;
+	float* _rightTexCoordXStep = &_topToMiddleTexCoordXStep;
+	float* _rightTexCoordY = &_topToMiddleTexCoordY;
+	float* _rightTexCoordYStep = &_topToMiddleTexCoordYStep;
+	float* _rightOneOverZ = &_topToMiddleOneOverZ;
+	float* _rightOneOverZStep = &_topToMiddleOneOverZStep;
+
+	if(_handedness)
 	{
 		int* _swapInt;
 		_swapInt = _leftYStart;
 		_leftYStart = _rightYStart;
 		_rightYStart = _swapInt;
+
 		_swapInt = _leftYEnd;
 		_leftYEnd = _rightYEnd;
 		_rightYEnd = _swapInt;
@@ -155,10 +264,45 @@ static void game_render_triangle(game_render_buffer* _RenderBuffer, math_4D_vect
 		_swapFloat = _leftXStep;
 		_leftXStep = _rightXStep;
 		_rightXStep = _swapFloat;
+
 		_swapFloat = _leftCurrentX;
 		_leftCurrentX = _rightCurrentX;
 		_rightCurrentX = _swapFloat;
+
+		_swapFloat = _leftTexCoordX;
+		_leftTexCoordX = _rightTexCoordX;
+		_rightTexCoordX = _swapFloat;
+
+		_swapFloat = _leftTexCoordXStep;
+		_leftTexCoordXStep = _rightTexCoordXStep;
+		_rightTexCoordXStep = _swapFloat;
+
+		_swapFloat = _leftTexCoordY;
+		_leftTexCoordY = _rightTexCoordY;
+		_rightTexCoordY = _swapFloat;
+		
+		_swapFloat = _leftTexCoordYStep;
+		_leftTexCoordYStep = _rightTexCoordYStep;
+		_rightTexCoordYStep = _swapFloat;
+
+		_swapFloat = _leftOneOverZ;
+		_leftOneOverZ = _rightOneOverZ;
+		_rightOneOverZ = _swapFloat;
+
+		_swapFloat = _leftOneOverZStep;
+		_leftOneOverZStep = _rightOneOverZStep;
+		_rightOneOverZStep = _swapFloat;
+
+		_swapFloat = _leftDepth;
+		_leftDepth = _rightDepth;
+		_rightDepth = _swapFloat;
+
+		_swapFloat = _leftDepthStep;
+		_leftDepthStep = _rightDepthStep;
+		_rightDepthStep = _swapFloat;
 	}
+
+
 	int _yStart = _topToMiddleYStart;
 	int _yEnd = _topToMiddleYEnd;
 	int _yCurrent = _yStart;
@@ -167,32 +311,89 @@ static void game_render_triangle(game_render_buffer* _RenderBuffer, math_4D_vect
 
 		int _xMin = (int)ceil(*_leftCurrentX);
 		int _xMax = (int)ceil(*_rightCurrentX);
+		float _xPrestep = _xMin - *_leftCurrentX;
+
+		float _xDistance = *_rightCurrentX - *_leftCurrentX;
+		float _texCoordXXStep = (*_rightTexCoordX - *_leftTexCoordX) / _xDistance;
+		float _texCoordYXStep = (*_rightTexCoordY - *_leftTexCoordY) / _xDistance;
+		float _currentOneOverZXStep = (*_rightOneOverZ - *_leftOneOverZ) / _xDistance;
+		float _currentDepthStep = (_rightDepthStep - _leftDepthStep) / _xDistance;
+
+		float _texCoordX = *_leftTexCoordX + _texCoordXXStep * _xPrestep;
+		float _texCoordY = *_leftTexCoordY + _texCoordYXStep * _xPrestep;
+		float _currentOneOverZ = *_leftOneOverZ + _currentOneOverZXStep * _xPrestep;
+		float _currentDepth = *_leftDepth + _currentDepthStep * _xPrestep;
+
 		int _xCurrent = _xMin;
 		uint8_t* _row = (uint8_t*)(_RenderBuffer->memory) + ((uint32_t)_xCurrent * game_render_bytesPerPixel) + ((_RenderBuffer->height - (uint32_t)_yCurrent) * _RenderBuffer->pitch);    
 		uint32_t* _pixel = (uint32_t*)_row;
 		while(_xCurrent < _xMax)
 		{
-			*_pixel = _color;
+			int _depthIndex = _yCurrent * _RenderBuffer->width + _xCurrent;
+			if(_currentDepth < _RenderBuffer->depthBuffer[_depthIndex]) // if what you're drawing is closer to your camera draw it
+			{
+				_RenderBuffer->depthBuffer[_depthIndex] = _currentDepth;
+				float _z = 1.0f / _currentOneOverZ;
+				int _texX = (int)((_texCoordX * _z) * (float)(_Texture.width - 1) + 0.5f);
+				int _texY = (int)((_texCoordY * _z) * (float)(_Texture.height - 1) + 0.5f);
+				int _colorIndex = _texY * _Texture.width + _texX;
+				math_4D_vector _tempColor = _Texture.color[_colorIndex];
+				uint32_t _color = (utility_round_floatToUint32(_tempColor.x * 255.0f) << 16) | (utility_round_floatToUint32(_tempColor.y * 255.0f) << 8) | (utility_round_floatToUint32(_tempColor.z * 255.0f) << 0); 
+				*_pixel = _color;
+			}
 			_pixel++;
 			_xCurrent++;
+			_currentOneOverZ += _currentOneOverZXStep;
+			_texCoordX += _texCoordXXStep;
+			_texCoordY += _texCoordYXStep;
+			_currentDepth += _currentDepthStep;
 		}
 		*_leftCurrentX += *_leftXStep;
 		*_rightCurrentX += *_rightXStep;
+		*_leftTexCoordX += *_leftTexCoordXStep;
+		*_leftTexCoordY += *_leftTexCoordYStep;
+		*_leftOneOverZ += *_leftOneOverZStep;
+		*_rightTexCoordX += *_rightTexCoordXStep;
+		*_rightTexCoordY += *_rightTexCoordYStep;
+		*_rightOneOverZ += *_rightOneOverZStep;
+		*_leftDepth += *_leftDepthStep;
+		*_rightDepth += *_rightDepthStep;
 		_yCurrent++;
 	}
 
-	// Bottom of the triangle
+
+	// Bottom of the triangle 
+	// Triangle
 	_leftYStart = &_topToBottomYStart;
 	_leftYEnd = &_topToBottomYEnd;
 	_leftXStep = &_topToBottomXStep;
 	_leftCurrentX = &_topToBottomCurrentX;
+	_leftDepth = &_topToBottomDepth;
+	_leftDepthStep = &_topToBottomDepthStep;
 
 	_rightYStart = &_middleToBottomYStart;
 	_rightYEnd = &_middleToBottomYEnd;
 	_rightXStep = &_middleToBottomXStep;
 	_rightCurrentX = &_middleToBottomCurrentX;
+	_rightDepth = &_middleToBottomDepth;
+	_rightDepthStep = &_middleToBottomDepthStep;
+	 
+	// Texture
+	_leftTexCoordX = &_topToBottomTexCoordX;
+	_leftTexCoordXStep = &_topToBottomTexCoordXStep;
+	_leftTexCoordY = &_topToBottomTexCoordY;
+	_leftTexCoordYStep = &_topToBottomTexCoordYStep;
+	_leftOneOverZ = &_topToBottomOneOverZ;
+	_leftOneOverZStep = &_topToBottomOneOverZStep;
 
-	if(handedness)
+	_rightTexCoordX = &_middleToBottomTexCoordX;
+	_rightTexCoordXStep = &_middleToBottomTexCoordXStep;
+	_rightTexCoordY = &_middleToBottomTexCoordY;
+	_rightTexCoordYStep = &_middleToBottomTexCoordYStep;
+	_rightOneOverZ = &_middleToBottomOneOverZ;
+	_rightOneOverZStep = &_middleToBottomOneOverZStep;
+
+	if(_handedness)
 	{
 		int* _swapInt;
 		_swapInt = _leftYStart;
@@ -209,26 +410,94 @@ static void game_render_triangle(game_render_buffer* _RenderBuffer, math_4D_vect
 		_swapFloat = _leftCurrentX;
 		_leftCurrentX = _rightCurrentX;
 		_rightCurrentX = _swapFloat;
+
+		_swapFloat = _leftTexCoordX;
+		_leftTexCoordX = _rightTexCoordX;
+		_rightTexCoordX = _swapFloat;
+
+		_swapFloat = _leftTexCoordXStep;
+		_leftTexCoordXStep = _rightTexCoordXStep;
+		_rightTexCoordXStep = _swapFloat;
+
+		_swapFloat = _leftTexCoordY;
+		_leftTexCoordY = _rightTexCoordY;
+		_rightTexCoordY = _swapFloat;
+
+		_swapFloat = _leftTexCoordYStep;
+		_leftTexCoordYStep = _rightTexCoordYStep;
+		_rightTexCoordYStep = _swapFloat;
+
+		_swapFloat = _leftOneOverZ;
+		_leftOneOverZ = _rightOneOverZ;
+		_rightOneOverZ = _swapFloat;
+
+		_swapFloat = _leftOneOverZStep;
+		_leftOneOverZStep = _rightOneOverZStep;
+		_rightOneOverZStep = _swapFloat;
+
+		_swapFloat = _leftDepth;
+		_leftDepth = _rightDepth;
+		_rightDepth = _swapFloat;
+
+		_swapFloat = _leftDepthStep;
+		_leftDepthStep = _rightDepthStep;
+		_rightDepthStep = _swapFloat;
 	}
+
 	_yStart = _middleToBottomYStart;
 	_yEnd = _middleToBottomYEnd;
 	_yCurrent = _yStart;
 	while(_yCurrent < _yEnd)
 	{
-
 		int _xMin = (int)ceil(*_leftCurrentX);
 		int _xMax = (int)ceil(*_rightCurrentX);
+		float _xPrestep = _xMin - *_leftCurrentX;
+
+		float _xDistance = *_rightCurrentX - *_leftCurrentX;
+		float _texCoordXXStep = (*_rightTexCoordX - *_leftTexCoordX) / _xDistance;
+		float _texCoordYXStep = (*_rightTexCoordY - *_leftTexCoordY) / _xDistance;
+		float _currentOneOverZXStep = (*_rightOneOverZ - *_leftOneOverZ) / _xDistance;
+		float _currentDepthStep = (_rightDepthStep - _leftDepthStep) / _xDistance;
+
+		float _texCoordX = *_leftTexCoordX + _texCoordXXStep * _xPrestep;
+		float _texCoordY = *_leftTexCoordY + _texCoordYXStep * _xPrestep;
+		float _currentOneOverZ = *_leftOneOverZ + _currentOneOverZXStep * _xPrestep;
+		float _currentDepth = *_leftDepth + _currentDepthStep * _xPrestep;
+
 		int _xCurrent = _xMin;
 		uint8_t* _row = (uint8_t*)(_RenderBuffer->memory) + ((uint32_t)_xCurrent * game_render_bytesPerPixel) + ((_RenderBuffer->height - (uint32_t)_yCurrent) * _RenderBuffer->pitch);    
 		uint32_t* _pixel = (uint32_t*)_row;
 		while(_xCurrent < _xMax)
 		{
-			*_pixel = _color;
+			int _depthIndex = _yCurrent * _RenderBuffer->width + _xCurrent;
+			if(_currentDepth < _RenderBuffer->depthBuffer[_depthIndex]) // if what you're drawing is closer to your camera draw it
+			{
+				_RenderBuffer->depthBuffer[_depthIndex] = _currentDepth;
+				float _z = 1.0f / _currentOneOverZ;
+				int _texX = (int)((_texCoordX * _z) * (float)(_Texture.width - 1) + 0.5f);
+				int _texY = (int)((_texCoordY * _z) * (float)(_Texture.height - 1) + 0.5f);
+				int _colorIndex = _texY * _Texture.width + _texX;
+				math_4D_vector _tempColor = _Texture.color[_colorIndex];
+				uint32_t _color = (utility_round_floatToUint32(_tempColor.x * 255.0f) << 16) | (utility_round_floatToUint32(_tempColor.y * 255.0f) << 8) | (utility_round_floatToUint32(_tempColor.z * 255.0f) << 0); 
+				*_pixel = _color;
+			}
 			_pixel++;
 			_xCurrent++;
+			_currentOneOverZ += _currentOneOverZXStep;
+			_texCoordX += _texCoordXXStep;
+			_texCoordY += _texCoordYXStep;
+			_currentDepth += _currentDepthStep;
 		}
 		*_leftCurrentX += *_leftXStep;
 		*_rightCurrentX += *_rightXStep;
+		*_leftTexCoordX += *_leftTexCoordXStep;
+		*_leftTexCoordY += *_leftTexCoordYStep;
+		*_leftOneOverZ += *_leftOneOverZStep;
+		*_rightTexCoordX += *_rightTexCoordXStep;
+		*_rightTexCoordY += *_rightTexCoordYStep;
+		*_rightOneOverZ += *_rightOneOverZStep;
+		*_leftDepth += *_leftDepthStep;
+		*_rightDepth += *_rightDepthStep;
 		_yCurrent++;
 	}
 }
@@ -303,9 +572,7 @@ extern "C" void game_main_init(uint8_t* _IsRunning, game_sound_buffer* _SoundBuf
 
 
 	// INIT RENDER //
-	// TODO load textures;
-	// TODO depth Buffering / Z-buffering
-	// Perspective Matrix //
+	_RenderBuffer->depthBuffer  = (float*)game_memory_allocate(&_gameState->allocator, sizeof(float) * _RenderBuffer->width * _RenderBuffer->height);
 	float _aspectRatio = (float)_RenderBuffer->width / (float)_RenderBuffer->height;
 	float _fieldOfView = math_constant_degreesPerRadian * 90.0f;
 	float _zNear = 0.1f;
@@ -314,11 +581,25 @@ extern "C" void game_main_init(uint8_t* _IsRunning, game_sound_buffer* _SoundBuf
 	_gameState->objectPositionData.position = {0.0f,0.0f,3.0f,0.0f};
 	_gameState->objectPositionData.rotation = {0.0f,0.0f,0.0f,1.0f};
 	_gameState->objectPositionData.scale = {1.0f,1.0f,1.0f,1.0f};
-
 	_gameState->cameraPositionData.position = {0.0f,0.0f,0.0f,0.0f};
 	_gameState->cameraPositionData.rotation = {0.0f,0.0f,0.0f,1.0f};
 	_gameState->cameraPositionData.scale = {1.0f,1.0f,1.0f,1.0f};
 	_gameState->rotationCounter = 0;
+
+	// TODO load texture from file
+	// current texture x as index of color
+	// current texture y as index of color
+	//_gameState->objectTexture.colorXStep = {0.0f, 0.1f, 0.0f, 0.0f}; // calculate this based on 
+	//_gameState->objectTexture.colorYStep = {0.0f, 0.0f, 0.1f, 0.0f};
+	_gameState->objectTexture.width = 2;
+	_gameState->objectTexture.height = 2;
+	_gameState->objectTexture.color = (math_4D_vector*)game_memory_allocate(&_gameState->allocator, sizeof(game_character_moveData) * _gameState->objectTexture.width * _gameState->objectTexture.height);
+	_gameState->objectTexture.color[0] = {0.2f, 0.2f, 0.2f, 0.0f}; // top left
+	_gameState->objectTexture.color[1] = {0.2f, 0.2f, 0.2f, 0.0f}; // top right
+	_gameState->objectTexture.color[2] = {0.2f, 0.2f, 0.2f, 0.0f}; // middle left
+	_gameState->objectTexture.color[3] = {0.0f, 0.0f, 0.0f, 0.0f}; // middle right
+	//_gameState->objectTexture.color[4] = {1.0f, 1.0f, 1.0f, 0.0f}; // bottom left
+	//_gameState->objectTexture.color[5] = {0.0f, 0.0f, 0.0f, 0.0f}; // bottom right
 
 
 	// INIT SOUND //
@@ -743,7 +1024,7 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 	// UPDATE RENDER //
 	if(_gameState->isInMenu)
 	{
-		game_render_color _backgroundColor = {0.0f, 0.0f, 0.0f}; 
+		math_4D_vector _backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f}; 
 		game_render_rectangle(_RenderBuffer, 0, 0, (float)_RenderBuffer->width, (float)_RenderBuffer->height, _backgroundColor);
 
 		float _menuItemWidth = (float)_RenderBuffer->width / 3;
@@ -754,13 +1035,13 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 
 		float _top = 0;
 		float _previousTop = _top;
-		game_render_color _menuItemColor = {1.0f, 1.0f, 0.0f};
-		game_render_color _selectedColor = {1.0f, 1.0f, 1.0f};
+		math_4D_vector _menuItemColor = {1.0f, 1.0f, 0.0f};
+		math_4D_vector _selectedColor = {1.0f, 1.0f, 1.0f};
 
 		int _menuItemIndex = game_menu_numberOfMenuOptions-1;
 		while(_menuItemIndex >= 0)
 		{
-			_menuItemColor.red =  1 /(float)(_menuItemIndex+1);
+			_menuItemColor.x =  1 /(float)(_menuItemIndex+1);
 			float _left = _leftPadding;
 			float _right = _left + _menuItemWidth;
 			float _bottom = _top + _menuItemHeight;
@@ -776,7 +1057,7 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 	}
 	else
 	{
-		game_render_color _backgroundColor = {};
+		math_4D_vector _backgroundColor = {};
 		game_render_rectangle(_RenderBuffer, 0, 0, (float)_RenderBuffer->width, (float)_RenderBuffer->height, _backgroundColor);
 
 		/*
@@ -785,7 +1066,7 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 		math_4D_vector _vector3 = {(float)_RenderBuffer->width/2,0,0,1};
 		*/
 
-		game_render_color _triangleFillColor = {1, 0, 1};
+		math_4D_vector _triangleFillColor = {1, 0, 1};
 		//game_render_triangle(_RenderBuffer, _vector1, _vector2, _vector3, _triangleFillColor);
 
 		float _screenWidth = (float)_RenderBuffer->width; 
@@ -911,6 +1192,18 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 		_gameState->cameraProjectionMatrix = math_4D_createPerspectiveMatrix(_fieldOfView, _aspectRatio, _zNear, _zFar);
 #endif
 		// normalize verticies
+
+		// RENDER OBJECTS //
+		// Clear depth buffer
+		{
+			int _depthBufferIndex = 0;
+			int _depthBufferSize = _RenderBuffer->width * _RenderBuffer->height;
+			while(_depthBufferIndex < _depthBufferSize)
+			{
+				_RenderBuffer->depthBuffer[_depthBufferIndex] = FLT_MAX;
+				_depthBufferIndex++;
+			}
+		}
 		math_4D_vector* _verticies = _gameState->objectVerticies;
 		float _largestLength = 0;
 		uint32_t _vertexCounter = 0;
@@ -939,31 +1232,57 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 		_gameState->rotationCounter += _gameState->secondsPassed;
 		math_4D_matrix _screenSpaceMatrix = math_4D_createScreenSpaceMatrix(_screenWidth / 2, _screenHeight / 2);
 		math_4D_matrix _translationMatrix = math_4D_createTranslationMatrix(0.0f, 0.0f, 2.0f);
-		math_4D_matrix _rotationMatrix = math_4D_createRotationMatrix(0, _gameState->rotationCounter, 0);
+		math_4D_matrix _rotationMatrix = math_4D_createRotationMatrix(_gameState->rotationCounter ,_gameState->rotationCounter, _gameState->rotationCounter );//_gameState->rotationCounter
 		math_4D_matrix _rotatedMatrix = math_4D_multiplyTwoMatricies(_translationMatrix, _rotationMatrix);
 		_rotatedMatrix = math_4D_multiplyTwoMatricies(_gameState->cameraProjectionMatrix, _rotatedMatrix);
-		//math_4D_vector* _objectVerticies = _gameState->objectVerticies;
 		uint32_t _faceCounter = 0;
 		game_render_face* _currentTriangle = _gameState->triangleFaces;
+#if 0
+		game_render_vertex _vertex1;
+		game_render_vertex _vertex2;
+		game_render_vertex _vertex3;
+		_vertex1.position = {-1.0f, -1.0f, 0.0f, 1.0f};
+		_vertex2.position = {0.0f, 1.0f, 0.0f, 1.0f};
+		_vertex3.position = {1.0f, -1.0f, 0.0f, 1.0f};
+		_vertex1.position = math_4D_transformVectorByMatrix(_vertex1.position, _rotatedMatrix);
+		_vertex2.position = math_4D_transformVectorByMatrix(_vertex2.position, _rotatedMatrix);
+		_vertex3.position = math_4D_transformVectorByMatrix(_vertex3.position, _rotatedMatrix);
+		_vertex1.position = math_4D_transformVectorByMatrix(_vertex1.position, _screenSpaceMatrix);
+		_vertex2.position = math_4D_transformVectorByMatrix(_vertex2.position, _screenSpaceMatrix);
+		_vertex3.position = math_4D_transformVectorByMatrix(_vertex3.position, _screenSpaceMatrix);
+		_vertex1.position = math_4D_divideByPerspective(_vertex1.position);
+		_vertex2.position = math_4D_divideByPerspective(_vertex2.position);
+		_vertex3.position = math_4D_divideByPerspective(_vertex3.position);
+		_vertex1.textureCoordinates = {0.0f, 0.0f};
+		_vertex2.textureCoordinates = {0.5f, 1.0f};
+		_vertex3.textureCoordinates = {1.0f, 0.0f};
+		game_render_triangle(_RenderBuffer, _vertex1, _vertex2, _vertex3, _gameState->objectTexture);
+#else
 		while(_faceCounter < _gameState->triangleCount)
 		{
-			math_4D_vector _vertex1 = *(_gameState->objectVerticies + _currentTriangle->vertex1-1);
-			math_4D_vector _vertex2 = *(_gameState->objectVerticies + _currentTriangle->vertex2-1);
-			math_4D_vector _vertex3 = *(_gameState->objectVerticies + _currentTriangle->vertex3-1);
-			_vertex1 = math_4D_transformVectorByMatrix(_vertex1, _rotatedMatrix);
-			_vertex2 = math_4D_transformVectorByMatrix(_vertex2, _rotatedMatrix);
-			_vertex3 = math_4D_transformVectorByMatrix(_vertex3, _rotatedMatrix);
-			_vertex1 = math_4D_transformVectorByMatrix(_vertex1, _screenSpaceMatrix);
-			_vertex2 = math_4D_transformVectorByMatrix(_vertex2, _screenSpaceMatrix);
-			_vertex3 = math_4D_transformVectorByMatrix(_vertex3, _screenSpaceMatrix);
-			_vertex1 = math_4D_divideByPerspective(_vertex1);
-			_vertex2 = math_4D_divideByPerspective(_vertex2);
-			_vertex3 = math_4D_divideByPerspective(_vertex3);
-			game_render_color _triangleColor = {1.0f, 1.0f, 0.0f};
-			game_render_triangle(_RenderBuffer, _vertex1, _vertex2, _vertex3, _triangleColor);
+			game_render_vertex _vertex1;
+			game_render_vertex _vertex2;
+			game_render_vertex _vertex3;
+			_vertex1.position = *(_gameState->objectVerticies + _currentTriangle->vertex1-1);
+			_vertex2.position = *(_gameState->objectVerticies + _currentTriangle->vertex2-1);
+			_vertex3.position = *(_gameState->objectVerticies + _currentTriangle->vertex3-1);
+			_vertex1.position = math_4D_transformVectorByMatrix(_vertex1.position, _rotatedMatrix);
+			_vertex2.position = math_4D_transformVectorByMatrix(_vertex2.position, _rotatedMatrix);
+			_vertex3.position = math_4D_transformVectorByMatrix(_vertex3.position, _rotatedMatrix);
+			_vertex1.position = math_4D_transformVectorByMatrix(_vertex1.position, _screenSpaceMatrix);
+			_vertex2.position = math_4D_transformVectorByMatrix(_vertex2.position, _screenSpaceMatrix);
+			_vertex3.position = math_4D_transformVectorByMatrix(_vertex3.position, _screenSpaceMatrix);
+			_vertex1.position = math_4D_divideByPerspective(_vertex1.position);
+			_vertex2.position = math_4D_divideByPerspective(_vertex2.position);
+			_vertex3.position = math_4D_divideByPerspective(_vertex3.position);
+			_vertex1.textureCoordinates = {0.0f, 0.0f};
+			_vertex2.textureCoordinates = {0.5f, 1.0f};
+			_vertex3.textureCoordinates = {1.0f, 0.0f};
+			game_render_triangle(_RenderBuffer, _vertex1, _vertex2, _vertex3, _gameState->objectTexture);
 			_currentTriangle++;
 			_faceCounter++;
 		}
+#endif
 #else 
 		// construct upward rotation
 		math_quaternion_struct _rotation;
@@ -1024,7 +1343,7 @@ extern "C" void game_main_update(uint8_t* _IsRunning, game_sound_buffer* _SoundB
 				_vertex1 = math_4D_divideByPerspective(_vertex1);
 				_vertex2 = math_4D_divideByPerspective(_vertex2);
 				_vertex3 = math_4D_divideByPerspective(_vertex3);
-				game_render_color _triangleColor = {1.0f, 1.0f, 0.0f};
+				math_4D_vector _triangleColor = {1.0f, 1.0f, 0.0f};
 				game_render_triangle(_RenderBuffer, _vertex1, _vertex2, _vertex3, _triangleColor);
 			}
 #if 0

@@ -203,6 +203,18 @@ int math_4D_vectorIsInsideViewFrustum(math_4D_vector _Vector)
 {
 	return (fabsf(_Vector.x) <= fabsf(_Vector.w) && (fabsf(_Vector.y) <= fabsf(_Vector.w)) && (fabsf(_Vector.z) <= fabsf(_Vector.w)));
 }
+math_4D_vector math_4D_lerpTwoVectors(math_4D_vector _Vector1, math_4D_vector _Vector2, float _LerpAmount)
+{
+	// NOTE: _LerpAmount is between 0 and 1
+	math_4D_vector _result = {};
+
+	_result.x = (_Vector2.x - _Vector1.x) * _LerpAmount + _Vector1.x;
+	_result.y = (_Vector2.y - _Vector1.y) * _LerpAmount + _Vector1.y;
+	_result.z = (_Vector2.z - _Vector1.z) * _LerpAmount + _Vector1.z;
+	_result.w = (_Vector2.w - _Vector1.w) * _LerpAmount + _Vector1.w;
+
+	return _result;
+}
 
 
 // 4D MATRIX //

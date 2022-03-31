@@ -73,18 +73,25 @@ typedef struct game_render_buffer
 	int height;
 	int pitch;
 	void* memory;
+	float* depthBuffer; // depth buffer holds the depth of each pixel on the screen
 } game_render_buffer;
-struct game_render_color
-{
-	float red;
-	float blue;
-	float green;
-};
 struct game_render_face
 {
+	// some texture id maybe?
 	int vertex1;
 	int vertex2;
 	int vertex3;
+};
+struct game_render_texture
+{
+	int width;
+	int height;
+	math_4D_vector* color;
+};
+struct game_render_vertex
+{
+	math_4D_vector position;
+	math_2D_vector textureCoordinates;
 };
 
 
@@ -226,6 +233,7 @@ typedef struct game_main_state
 	math_4D_vector* objectVerticies;
 	uint32_t objectVerticiesCount;
 	game_object_positionData objectPositionData;
+	game_render_texture objectTexture;
 	game_object_positionData cameraPositionData;
 	math_4D_matrix cameraProjectionMatrix; 
 	float rotationCounter;
